@@ -9,19 +9,20 @@ const authRoutes = require('./routes/auth');
 connectDB();
 
 const app = express();
+
+// Use the PORT provided by the hosting platform (like Render)
 const PORT = process.env.PORT || 5000;
 
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5176'],
-  credentials: true
-}));
+app.use(cors());
 app.use(express.json());
 
+// API Routes
 app.use('/api', apiRoutes);
 app.use('/api/auth', authRoutes);
 
+// Health Check for Render/Railway monitoring
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK' });
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 app.listen(PORT, () => {
