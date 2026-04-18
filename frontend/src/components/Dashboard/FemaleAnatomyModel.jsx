@@ -16,55 +16,72 @@ export function Model({ organStress, ...props }) {
   const organMap = {
     heart: [materials.heart_mat],
     lungs: [materials.lung_mat],
-    brain: [materials.brain_mat],
-    liver: [materials.Liver_Mat],
-    kidneys: [materials.kidneycortex_medulla_mat, materials.kidney_pyramids_mat]
-  }
+    brain: [materials.Brain_mat],
+    liver: [materials.Liver_mat],
+    kidneys: [materials.kidney_CortexMedulla_mat, materials.kidney_Pyramids_mat],
+    pancreas: [materials.gland_mat]
+  };
 
-  // Handle emissive colors based on stress
-  useEffect(() => {
-    if (!organStress) {
-      Object.values(organMap).flat().forEach(mat => {
-        if (mat) {
-          mat.emissive = new THREE.Color(0, 0, 0)
-          mat.emissiveIntensity = 0
-        }
-      })
-      return
+  const getTargetColor = (organ, stress) => {
+    let colorHex = 0xffffff;
+    switch(organ) {
+      case 'lungs':
+        if (stress > 60) colorHex = 0x2b2b2b;
+        else if (stress > 25) colorHex = 0x696969;
+        else colorHex = 0xffb6c1;
+        break;
+      case 'liver':
+        if (stress > 60) colorHex = 0x4a2e15;
+        else if (stress > 25) colorHex = 0xc2b280;
+        else colorHex = 0x8b3a3a;
+        break;
+      case 'heart':
+        if (stress > 60) colorHex = 0x4a0e17;
+        else if (stress > 25) colorHex = 0x8b0000;
+        else colorHex = 0xdc143c;
+        break;
+      case 'brain':
+        if (stress > 60) colorHex = 0x808080;
+        else if (stress > 25) colorHex = 0xe6e6a1;
+        else colorHex = 0xffe4e1;
+        break;
+      case 'pancreas':
+        if (stress > 60) colorHex = 0x654321;
+        else if (stress > 25) colorHex = 0xff8c00;
+        else colorHex = 0xffb6c1;
+        break;
+      case 'kidneys':
+        if (stress > 60) colorHex = 0x2a1b15;
+        else if (stress > 25) colorHex = 0x5c3317;
+        else colorHex = 0xa52a2a;
+        break;
+      default:
+        colorHex = 0xffffff;
     }
+    return new THREE.Color(colorHex);
+  };
 
+  // Animation and realistic color transitions
+  useFrame((state, delta) => {
+    const stressState = organStress || {};
     Object.entries(organMap).forEach(([key, mats]) => {
-      const stress = organStress[key] || 0
+      const stress = stressState[key] || 0;
+      const targetColor = getTargetColor(key, stress);
+      
       mats.forEach(mat => {
-        if (!mat) return
-        if (stress > 60) {
-          mat.emissive.set(0xffff00) // Bright Yellow (Critical Alert)
-          mat.emissiveIntensity = 2.5
-        } else if (stress > 25) {
-          mat.emissive.set(0x999900) // Muted Yellow (Warning)
-          mat.emissiveIntensity = 1.0
-        } else {
-          mat.emissive.set(0x000000) // Healthy
-          mat.emissiveIntensity = 0
-        }
-      })
-    })
-  }, [organStress])
-
-  // Animation for pulsing
-  useFrame((state) => {
-    if (!organStress) return
-    const time = state.clock.getElapsedTime()
-    
-    Object.entries(organMap).forEach(([key, mat]) => {
-      if (!mat) return
-      const stress = organStress[key] || 0
-      if (stress > 40) {
-        const pulse = Math.sin(time * (stress > 70 ? 10 : 4)) * 0.5 + 0.5
-        mat.emissiveIntensity = (stress > 70 ? 0.8 : 0.3) + pulse * 0.4
-      }
-    })
-  })
+        if (!mat) return;
+        
+        if (!mat.color) mat.color = new THREE.Color(0xffffff);
+        
+        // Smoothly interpolate base color
+        mat.color.lerp(targetColor, delta * 2.0);
+        
+        // Keep emissive extremely subtle to mimic moisture/highlights, not neon glowing
+        mat.emissive.copy(targetColor);
+        mat.emissiveIntensity = stress > 25 ? 0.1 : 0; 
+      });
+    });
+  });
   return (
     <group {...props} dispose={null}>
       <mesh geometry={nodes.VH_F_skin.geometry} material={materials.Skin_mat2} />

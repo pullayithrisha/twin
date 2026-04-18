@@ -1,7 +1,7 @@
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
-export const generatePDFReport = async (reportElementId, reportData) => {
+export const generatePDFReport = async (reportElementId, reportData, options = { download: true, returnBase64: false }) => {
   try {
     const doc = new jsPDF("p", "pt", "a4");
     
@@ -14,7 +14,14 @@ export const generatePDFReport = async (reportElementId, reportData) => {
         const pdfWidth = doc.internal.pageSize.getWidth();
         const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
         doc.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-        doc.save(`TwinHealth_Report_${new Date().getTime()}.pdf`);
+        
+        if (options.download) {
+          doc.save(`TwinHealth_Report_${new Date().getTime()}.pdf`);
+        }
+        
+        if (options.returnBase64) {
+          return doc.output('datauristring');
+        }
         return;
       }
     }
@@ -32,29 +39,43 @@ export const generatePDFReport = async (reportElementId, reportData) => {
     doc.setFont("helvetica", "bold");
     doc.text("Health Overview", 40, 120);
     doc.setFont("helvetica", "normal");
-    doc.text(`Health Score: ${reportData.scores.healthScore}/100`, 40, 140);
-    doc.text(`Biological Age: ${reportData.scores.biologicalAge} yrs`, 40, 160);
+    const healthScoreVal = reportData.healthScore || reportData.scores?.healthScore || 'N/A';
+    const biologicalAgeVal = reportData.biologicalAge || reportData.scores?.biologicalAge || 'N/A';
+    doc.text(`Health Score: ${healthScoreVal}/100`, 40, 140);
+    doc.text(`Biological Age: ${biologicalAgeVal} yrs`, 40, 160);
 
     doc.setFont("helvetica", "bold");
     doc.text("Key Risks", 40, 200);
     doc.setFont("helvetica", "normal");
     let y = 220;
-    Object.entries(reportData.risks).forEach(([key, val]) => {
-      doc.text(`- ${key}: ${val}%`, 40, y);
-      y += 20;
-    });
+    if (reportData.risks) {
+      Object.entries(reportData.risks).forEach(([key, val]) => {
+        if (typeof val !== 'object') {
+          doc.text(`- ${key}: ${val}%`, 40, y);
+          y += 20;
+        }
+      });
+    }
 
     y += 20;
     doc.setFont("helvetica", "bold");
     doc.text("Personalized AI Suggestions", 40, y);
     doc.setFont("helvetica", "normal");
     y += 20;
-    reportData.suggestions.forEach(s => {
-      doc.text(`* ${s}`, 40, y);
-      y += 20;
-    });
+    if (reportData.suggestions) {
+      reportData.suggestions.forEach(s => {
+        doc.text(`* ${s}`, 40, y);
+        y += 20;
+      });
+    }
 
-    doc.save(`TwinHealth_Report_${new Date().getTime()}.pdf`);
+    if (options.download) {
+      doc.save(`TwinHealth_Report_${new Date().getTime()}.pdf`);
+    }
+    
+    if (options.returnBase64) {
+      return doc.output('datauristring');
+    }
     
   } catch (error) {
     console.error("Error generating PDF:", error);

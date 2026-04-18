@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import axios from 'axios';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 const useTwinStore = create((set, get) => ({
   biometrics: {
     age: 35,
@@ -40,7 +42,7 @@ const useTwinStore = create((set, get) => ({
     set({ loading: true });
     try {
       const state = get();
-      const response = await axios.post('http://localhost:5000/api/predict', {
+      const response = await axios.post(`${API_BASE_URL}/api/analyze`, {
         biometrics: state.biometrics,
         lifestyle: state.lifestyle,
         conditions: state.conditions

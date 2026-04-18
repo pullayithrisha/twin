@@ -4,16 +4,21 @@ import Sidebar from '../components/Dashboard/Sidebar';
 import InputForm from '../components/Dashboard/InputForm';
 import ThreeBody from '../components/Dashboard/ThreeBody';
 import Results from '../components/Dashboard/Results';
+import { generatePDFReport } from '../utils/pdfGenerator';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, Sparkles, Activity, Menu, Zap } from 'lucide-react';
+import { Loader2, Sparkles, Activity, Menu, Zap, LogOut, User as UserIcon } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const Dashboard = () => {
+  const { user, token, logout } = useAuth();
+  const navigate = useNavigate();
   const [reports, setReports] = useState([]);
   const [currentData, setCurrentData] = useState(null);
   const [currentInputs, setCurrentInputs] = useState({
-    name: 'John Doe', age: 35, gender: 'Male', height: 175, weight: 80,
+    name: user?.name || 'John Doe', age: 35, gender: 'Male', height: 175, weight: 80,
     bp: '120/80', sugar: 90, calories: 2500, sleep: 7, exercise: 3, 
     steps: 8000, water: 2, stress: 3, smoking: 'No', alcohol: 'Low',
     junkFood: 'Medium', sugarIntake: 'Medium'
@@ -25,16 +30,20 @@ const Dashboard = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
-    fetchReports();
+    if (token) {
+      fetchReports();
+    }
     handleLiveUpdate({
       smoking: 'No', alcohol: 'Low', junkFood: 'Medium', sugarIntake: 'Medium',
       bp: '120/80', sugar: 90, stress: 3, sleep: 7, exercise: 3
     });
-  }, []);
+  }, [token]);
 
   const fetchReports = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/api/reports`);
+      const res = await axios.get(`${API_BASE_URL}/api/reports`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setReports(res.data);
     } catch (e) {
       console.error('Failed to fetch history', e);
@@ -139,9 +148,19 @@ const Dashboard = () => {
           sugarIntake: inputs.sugarIntake, stress: inputs.stress, steps: inputs.steps
         }
       };
-      const res = await axios.post(`${API_BASE_URL}/api/analyze`, twinState);
-      setCurrentData({ ...res.data, ...res.data.risks });
-      if (res.data.organStress) setLiveStress(res.data.organStress);
+      const [analyzeRes, recommendRes] = await Promise.all([
+        axios.post(`${API_BASE_URL}/api/ai/analyze`, twinState),
+        axios.post(`${API_BASE_URL}/api/ai/recommend`, twinState)
+      ]);
+      
+      const combinedData = {
+        ...analyzeRes.data,
+        ...analyzeRes.data.risks,
+        suggestions: recommendRes.data.suggestions || []
+      };
+      
+      setCurrentData(combinedData);
+      if (analyzeRes.data.organStress) setLiveStress(analyzeRes.data.organStress);
       // Smooth scroll to results after simulation
       setTimeout(() => {
         window.scrollTo({ top: 800, behavior: 'smooth' });
@@ -156,26 +175,57 @@ const Dashboard = () => {
   const handleSaveReport = async () => {
     try {
       if (!currentData || !currentInputs) return;
-      await axios.post(`${API_BASE_URL}/api/reports`, {
-        name: currentInputs.name || 'Anonymous',
+      
+      // Generate PDF Base64 for DB
+      const pdfBase64 = await generatePDFReport(null, {
+        inputs: currentInputs,
+        scores: { healthScore: currentData.healthScore, biologicalAge: currentData.biologicalAge },
+        risks: currentData.risks,
+        suggestions: currentData.suggestions
+      }, { download: false, returnBase64: true });
+
+      // Save to DB
+      await axios.post(`${API_BASE_URL}/api/report/save`, {
+        name: currentInputs.name || user?.name || 'Anonymous',
         inputs: currentInputs,
         scores: { healthScore: currentData.healthScore, biologicalAge: currentData.biologicalAge },
         risks: currentData.risks,
         healthSummary: currentData.healthSummary,
         suggestions: currentData.suggestions || [],
-        chartData: currentData.projections?.timeSeries || []
+        chartData: currentData.projections?.timeSeries || [],
+        pdfData: pdfBase64
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
       });
+      
       fetchReports();
-      alert("Report saved to history.");
+      alert("Report saved successfully");
     } catch (e) {
        console.error("Failed to save", e);
+       alert("Failed to synchronize with secure vault.");
+    }
+  };
+
+  const downloadHistoryReport = (report) => {
+    if (report.pdfData) {
+      const link = document.createElement('a');
+      link.href = report.pdfData;
+      link.download = `TwinHealth_History_${new Date(report.date).getTime()}.pdf`;
+      link.click();
+    } else {
+      generatePDFReport(null, {
+        inputs: report.inputs,
+        scores: report.scores,
+        risks: report.risks,
+        suggestions: report.suggestions
+      });
     }
   };
 
   const loadReportFromHistory = (report) => {
     setCurrentInputs(report.inputs);
     setPreviewGender(report.inputs.gender);
-    setLiveStress(report.risks?.organStress || null);
+    setLiveStress(report.risks?.organStress || report.risks || null);
     setCurrentData({
       ...report.risks,
       healthScore: report.scores.healthScore,
@@ -193,6 +243,7 @@ const Dashboard = () => {
       <Sidebar 
         reports={reports} 
         onSelectReport={(r) => { loadReportFromHistory(r); setIsSidebarOpen(false); }} 
+        onDownloadReport={downloadHistoryReport}
         onNew={() => { setCurrentData(null); setCurrentInputs(null); setPreviewGender('Male'); setLiveStress(null); setIsSidebarOpen(false); }} 
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -220,13 +271,38 @@ const Dashboard = () => {
               </p>
             </div>
           </div>
-          <div className="hidden xl:flex items-center gap-4">
-             <div className="text-right">
-                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Global Status</p>
-                <p className="text-emerald-500 text-xs font-bold leading-none">{currentData ? 'Analysis Ready' : 'Awaiting Input'}</p>
+          <div className="flex items-center gap-6">
+             <div className="hidden xl:flex items-center gap-4 px-4 py-2 bg-slate-900/50 rounded-2xl border border-white/5">
+                <div className="text-right">
+                   <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none mb-1">Authenticated User</p>
+                   <p className="text-white text-xs font-black truncate max-w-[120px]">{user?.name}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl overflow-hidden border border-indigo-500/30">
+                   {user?.picture ? (
+                     <img src={user.picture} alt="profile" className="w-full h-full object-cover" />
+                   ) : (
+                     <div className="w-full h-full bg-indigo-500/20 flex items-center justify-center">
+                        <UserIcon className="text-indigo-400" size={18} />
+                     </div>
+                   )}
+                </div>
+                <button 
+                  onClick={() => { logout(); navigate('/'); }}
+                  className="p-2 text-slate-500 hover:text-rose-500 transition-colors"
+                  title="Logout"
+                >
+                  <LogOut size={18} />
+                </button>
              </div>
-             <div className="w-10 h-10 rounded-full border border-white/5 bg-slate-900/50 flex items-center justify-center">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+             
+             <div className="hidden lg:flex items-center gap-4">
+                <div className="text-right">
+                   <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Global Status</p>
+                   <p className="text-emerald-500 text-xs font-bold leading-none">{currentData ? 'Analysis Ready' : 'Awaiting Input'}</p>
+                </div>
+                <div className="w-10 h-10 rounded-full border border-white/5 bg-slate-900/50 flex items-center justify-center">
+                   <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                </div>
              </div>
           </div>
         </header>

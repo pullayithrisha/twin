@@ -44,17 +44,28 @@ const generateProjections = (twinState, currentMetrics) => {
   for (let year = 1; year <= 10; year++) {
     // Diminishing returns on weight loss/gain
     let weightChange = -(yearlyWeightChange * Math.pow(0.9, year - 1)); 
-    simulatedWeight = Math.max(30, simulatedWeight + weightChange); // Cap at 30kg minimum for safety
+    simulatedWeight = Math.max(30, simulatedWeight + weightChange); 
     
     // Simulate other biomarkers
     const bmi = calculateBMI(simulatedWeight, twinState.biometrics.height);
-    const bgBase = 90 + (bmi > 25 ? (bmi - 25) * 2 : 0) - (twinState.lifestyle.exercise * 1.5) + (twinState.lifestyle.carbs > 50 ? 5 : 0);
+    const bgBase = 90 + (bmi > 25 ? (bmi - 25) * 2 : 0) - (twinState.lifestyle.exercise * 1.5) + ((twinState.lifestyle.sugarIntake === 'High') ? 10 : 0);
     
+    // Extrapolate a mock progression for risks and health score based on bmi
+    let healthFactor = (twinState.lifestyle.exercise * 2) - ((bmi > 25) ? (bmi - 25) : 0);
+    let mockHealthScore = 100 + healthFactor * year;
+    let mockCardio = 50 - healthFactor * year;
+    let mockDiabetes = 30 + (bmi > 25 ? (bmi - 25) * year : -year * 2);
+    let mockObesity = bmi > 25 ? 60 + (bmi - 25) * year : 20 - year * 2;
+
     projections.push({
       year,
       weight: parseFloat(simulatedWeight.toFixed(1)),
       bmi: parseFloat(bmi.toFixed(1)),
-      bloodGlucose: parseFloat(Math.min(250, bgBase).toFixed(1))
+      bloodGlucose: parseFloat(Math.min(250, bgBase).toFixed(1)),
+      healthScore: parseFloat(Math.max(0, Math.min(100, mockHealthScore)).toFixed(1)),
+      cardioRisk: parseFloat(Math.max(0, Math.min(100, mockCardio)).toFixed(1)),
+      diabetesRisk: parseFloat(Math.max(0, Math.min(100, mockDiabetes)).toFixed(1)),
+      obesityRisk: parseFloat(Math.max(0, Math.min(100, Math.max(0, mockObesity))).toFixed(1)),
     });
   }
 
